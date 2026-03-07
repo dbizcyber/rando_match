@@ -4,8 +4,6 @@
 <head>
 
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-
 <title>Randonnées du club</title>
 
 <link rel="stylesheet"
@@ -13,14 +11,11 @@ href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
 <style>
 
 body{
 font-family:Segoe UI,Arial;
 background:#f4f6f8;
-margin:0;
 padding:30px;
 }
 
@@ -44,7 +39,7 @@ box-shadow:0 2px 8px rgba(0,0,0,0.1);
 
 .grid{
 display:grid;
-grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+grid-template-columns:repeat(3,1fr);
 gap:15px;
 }
 
@@ -118,17 +113,26 @@ font-size:28px;
 cursor:pointer;
 z-index:2000;
 }
-
 .zoneGraph{
 width:320px;
-margin:30px auto;
+height:220px;
+margin:8px auto 10px auto;
 }
 
 #graphStats{
-width:100%;
-height:220px;
+width:100% !important;
+height:100% !important;
+}
+th{
+background:#2c7be5;
+color:white;
+padding:8px;
+cursor:pointer;
 }
 
+th:hover{
+background:#1a5fc4;
+}
 </style>
 
 </head>
@@ -137,35 +141,44 @@ height:220px;
 
 <div class="container">
 
-<h1>🥾 Randonnées du club</h1>
+<h1>Randonnées du club</h1>
 
 <div class="filters">
 
 <div class="grid">
 
 <input type="date" id="date">
+
 <input type="text" id="description" placeholder="Description">
+
 <input type="text" id="animateur" placeholder="Animateur">
+
 <input type="number" id="ibp" placeholder="IBP max">
+
 <input type="number" id="km" placeholder="Km max">
+
 <input type="number" id="denivele" placeholder="Dénivelé max">
 
 </div>
+<div id="zoneStats">
 
 <div class="stats" id="stats"></div>
 
+<div class="zoneGraph">
+<canvas id="graphStats"></canvas>
 </div>
 
+</div>
 <table>
 
 <thead>
 <tr>
-<th>Date</th>
-<th>Description</th>
-<th>IBP</th>
-<th>Km</th>
-<th>Dénivelé</th>
-<th>Animateur</th>
+<th onclick="trier('date')">Date</th>
+<th onclick="trier('description')">Description</th>
+<th onclick="trier('ibp')">IBP</th>
+<th onclick="trier('km')">Km</th>
+<th onclick="trier('denivele')">Dénivelé</th>
+<th onclick="trier('animateur')">Animateur</th>
 </tr>
 </thead>
 
@@ -187,14 +200,13 @@ height:220px;
 
 </div>
 
-<div class="zoneGraph">
-<canvas id="graphStats"></canvas>
-</div>
-
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
+let colonneTri = null;
+let sensTri = 1;
 
-const SUPABASE_URL="https://whlxbfnmyqdflmxosfse.supabase.co";
-const SUPABASE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndobHhiZm5teXFkZmxteG9zZnNlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI3ODA5MTksImV4cCI6MjA4ODM1NjkxOX0.vf3sdnJRnnXyIx998fhPSIUPX0WS7KqDbvAwesCzOcE";
+const SUPABASE_URL = "https://whlxbfnmyqdflmxosfse.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndobHhiZm5teXFkZmxteG9zZnNlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI3ODA5MTksImV4cCI6MjA4ODM1NjkxOX0.vf3sdnJRnnXyIx998fhPSIUPX0WS7KqDbvAwesCzOcE";
 
 const THUNDERFOREST_KEY="0ffff5950d8a4019bcede9aaeeecb57f";
 
@@ -215,18 +227,56 @@ Authorization:"Bearer "+SUPABASE_KEY
 
 });
 
-toutes=await res.json();
+toutes = await res.json();
+
+/* tri par date (plus récent en premier) */
+toutes.sort((a,b)=> new Date(b.date) - new Date(a.date));
 
 filtrer();
-
 }
 
 window.onload=charger;
 
 document.querySelectorAll("input").forEach(i=>{
+
 i.addEventListener("input",filtrer);
+
+});
+function trier(colonne){
+
+if(colonneTri===colonne){
+sensTri = sensTri * -1;
+}else{
+colonneTri = colonne;
+sensTri = 1;
+}
+
+filtre.sort((a,b)=>{
+
+let vA = a[colonne] ?? "";
+let vB = b[colonne] ?? "";
+
+/* si date */
+
+if(colonne==="date"){
+return (new Date(vA)-new Date(vB)) * sensTri;
+}
+
+/* si nombre */
+
+if(!isNaN(vA) && !isNaN(vB)){
+return (vA-vB) * sensTri;
+}
+
+/* texte */
+
+return vA.toString().localeCompare(vB.toString()) * sensTri;
+
 });
 
+afficher();
+
+}
 function filtrer(){
 
 let date=document.getElementById("date").value;
@@ -251,21 +301,181 @@ afficher();
 
 }
 
+function creerGraphique(nb,km,den,ibp,nbA,kmA,denA,ibpA){
+
+let ctx=document.getElementById("graphStats");
+
+if(radarChart){
+radarChart.destroy();
+}
+
+/* normalisation club */
+
+let scoreRandos=(nb/300)*100;
+let scoreKm=(km/25)*100;
+let scoreDen=(den/1200)*100;
+let scoreIBP=(ibp/80)*100;
+
+/* normalisation animateur */
+
+let scoreRandosA=(nbA/300)*100;
+let scoreKmA=(kmA/25)*100;
+let scoreDenA=(denA/1200)*100;
+let scoreIBPA=(ibpA/80)*100;
+
+let datasets=[{
+
+label:"Club",
+
+data:[
+scoreRandos,
+scoreKm,
+scoreDen,
+scoreIBP
+],
+
+backgroundColor:"rgba(44,123,229,0.25)",
+borderColor:"#2c7be5",
+borderWidth:2
+
+}];
+
+/* si animateur sélectionné */
+
+if(nbA>0){
+
+datasets.push({
+
+label:"Animateur",
+
+data:[
+scoreRandosA,
+scoreKmA,
+scoreDenA,
+scoreIBPA
+],
+
+backgroundColor:"rgba(255,0,0,0.2)",
+borderColor:"red",
+pointBackgroundColor:"red"
+
+});
+
+}
+
+radarChart=new Chart(ctx,{
+
+type:"radar",
+
+data:{
+labels:[
+"Activité",
+"Distance",
+"Dénivelé",
+"Difficulté"
+],
+
+datasets:datasets
+
+},
+
+options:{
+responsive:true,
+maintainAspectRatio:false,
+
+plugins:{
+legend:{
+position:"top",
+labels:{
+boxWidth:12,
+font:{size:11}
+}
+}
+},
+
+scales:{
+r:{
+min:0,
+max:100,
+ticks:{display:false},
+pointLabels:{
+font:{size:11}
+}
+}
+}
+
+}
+
+});
+
+}
+function initMap(){
+
+map = L.map("map").setView([42.5,2.8],10);
+
+/* fond de carte OpenStreetMap */
+
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
+maxZoom:19,
+attribution:"© OpenStreetMap"
+}).addTo(map);
+
+/* couche randonnée Thunderforest */
+
+L.tileLayer(
+"https://tile.thunderforest.com/outdoors/{z}/{x}/{y}.png?apikey="+THUNDERFOREST_KEY,
+{
+maxZoom:22,
+attribution:"© Thunderforest"
+}
+).addTo(map);
+
+}
 function afficher(){
 
 let tbody=document.getElementById("tableBody");
-
 tbody.innerHTML="";
+
+/* animateur sélectionné */
+
+let animateur=document.getElementById("animateur").value.toLowerCase();
+
+/* stats club */
 
 let totalKm=0;
 let totalDen=0;
 let totalIBP=0;
 
-filtre.forEach(r=>{
+/* stats animateur */
+
+let totalKmA=0;
+let totalDenA=0;
+let totalIBPA=0;
+let nbA=0;
+
+/* calcul stats club */
+
+toutes.forEach(r=>{
 
 totalKm+=Number(r.km)||0;
 totalDen+=Number(r.denivele)||0;
 totalIBP+=Number(r.ibp)||0;
+
+});
+
+/* affichage tableau + stats animateur */
+
+filtre.forEach(r=>{
+
+if(animateur && r.animateur && r.animateur.toLowerCase().includes(animateur)){
+
+totalKmA+=Number(r.km)||0;
+totalDenA+=Number(r.denivele)||0;
+totalIBPA+=Number(r.ibp)||0;
+
+nbA++;
+
+}
 
 let tr=document.createElement("tr");
 
@@ -286,39 +496,50 @@ tbody.appendChild(tr);
 
 });
 
+/* stats club */
+
+let nClub=toutes.length;
+
+let moyKm=nClub?totalKm/nClub:0;
+let moyDen=nClub?totalDen/nClub:0;
+let moyIBP=nClub?totalIBP/nClub:0;
+
+/* stats animateur */
+
+let moyKmA=nbA?totalKmA/nbA:0;
+let moyDenA=nbA?totalDenA/nbA:0;
+let moyIBPA=nbA?totalIBPA/nbA:0;
+
+/* nombre de randos affichées */
+
 let n=filtre.length;
 
-let moyKm=n?(totalKm/n).toFixed(1):0;
-let moyDen=n?(totalDen/n).toFixed(0):0;
-let moyIBP=n?(totalIBP/n).toFixed(0):0;
+/* affichage texte */
 
 document.getElementById("stats").innerHTML=
 
-"📊 "+n+" randonnée(s) | Km moyen : "+moyKm+
-" | Dénivelé moyen : "+moyDen+
-" | IBP moyen : "+moyIBP;
+"📊 "+n+" randonnée(s) affichée(s) | Moyenne Km : "+moyKm.toFixed(1)+
+" | Moyenne Dénivelé : "+moyDen.toFixed(0)+
+" | Moyenne IBP : "+moyIBP.toFixed(0);
 
-}
+/* graphique radar */
 
-function initMap(){
-
-map=L.map('map').setView([42.6,2.9],9);
-
-L.tileLayer(
-'https://tile.thunderforest.com/outdoors/{z}/{x}/{y}.png?apikey='+THUNDERFOREST_KEY,
-{
-maxZoom:22
-}).addTo(map);
+creerGraphique(
+nClub,moyKm,moyDen,moyIBP,
+nbA,moyKmA,moyDenA,moyIBPA
+);
 
 }
 
 async function afficherCarte(description){
 
-let lieu=description.split(".")[0].trim();
+// récupérer le texte avant le premier point
+let lieu = description.split(".")[0].trim();
 
 let url="https://nominatim.openstreetmap.org/search?format=json&q="+encodeURIComponent(lieu);
 
 let res=await fetch(url);
+
 let data=await res.json();
 
 if(data.length){
@@ -344,11 +565,15 @@ document.getElementById("popupCarte").style.display="block";
 
 setTimeout(()=>{
 
-if(!map) initMap();
+if(!map){
+initMap();
+}else{
+map.invalidateSize();
+}
 
 afficherCarte(lieu);
 
-},200);
+},300);
 
 }
 
@@ -357,8 +582,8 @@ document.getElementById("fermerCarte").onclick=function(){
 document.getElementById("popupCarte").style.display="none";
 
 }
-
 </script>
 
 </body>
+
 </html>
