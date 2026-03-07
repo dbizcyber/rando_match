@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Randonnées du club</title>
+
+<link rel="stylesheet"
+href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+
+body{
+font-family:Segoe UI,Arial;
+background:#f4f6f8;
+margin:0;
+padding:30px;
+}
+
+.container{
+max-width:1200px;
+margin:auto;
+}
+
+h1{
+text-align:center;
+margin-bottom:25px;
+}
+
+.filters{
+background:white;
+padding:20px;
+border-radius:10px;
+margin-bottom:20px;
+box-shadow:0 2px 8px rgba(0,0,0,0.1);
+}
+
+.grid{
+display:grid;
+grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+gap:15px;
+}
+
+input{
+padding:8px;
+border:1px solid #ccc;
+border-radius:5px;
+}
+
+.stats{
+margin-top:10px;
+font-weight:bold;
+}
+
+table{
+width:100%;
+border-collapse:collapse;
+background:white;
+font-size:13px;
+}
+
+th{
+background:#2c7be5;
+color:white;
+padding:8px;
+}
+
+td{
+padding:6px;
+border-bottom:1px solid #eee;
+}
+
+tr:hover{
+background:#f0f5ff;
+cursor:pointer;
+}
+
+#popupCarte{
+display:none;
+position:fixed;
+top:0;
+left:0;
+width:100%;
+height:100%;
+background:rgba(0,0,0,0.6);
+z-index:1000;
+}
+
+.popup-content{
+position:absolute;
+top:50%;
+left:50%;
+transform:translate(-50%,-50%);
+width:85%;
+height:80%;
+background:white;
+border-radius:10px;
+overflow:hidden;
+}
+
+#map{
+width:100%;
+height:100%;
+}
+
+#fermerCarte{
+position:absolute;
+top:10px;
+right:15px;
+font-size:28px;
+cursor:pointer;
+z-index:2000;
+}
+
+.zoneGraph{
+width:320px;
+margin:30px auto;
+}
+
+#graphStats{
+width:100%;
+height:220px;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<div class="container">
+
+<h1>🥾 Randonnées du club</h1>
+
+<div class="filters">
+
+<div class="grid">
+
+<input type="date" id="date">
+<input type="text" id="description" placeholder="Description">
+<input type="text" id="animateur" placeholder="Animateur">
+<input type="number" id="ibp" placeholder="IBP max">
+<input type="number" id="km" placeholder="Km max">
+<input type="number" id="denivele" placeholder="Dénivelé max">
+
+</div>
+
+<div class="stats" id="stats"></div>
+
+</div>
+
+<table>
+
+<thead>
+<tr>
+<th>Date</th>
+<th>Description</th>
+<th>IBP</th>
+<th>Km</th>
+<th>Dénivelé</th>
+<th>Animateur</th>
+</tr>
+</thead>
+
+<tbody id="tableBody"></tbody>
+
+</table>
+
+</div>
+
+<div id="popupCarte">
+
+<div class="popup-content">
+
+<span id="fermerCarte">&times;</span>
+
+<div id="map"></div>
+
+</div>
+
+</div>
+
+<div class="zoneGraph">
+<canvas id="graphStats"></canvas>
+</div>
+
+<script>
+
+const SUPABASE_URL="https://whlxbfnmyqdflmxosfse.supabase.co";
+const SUPABASE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndobHhiZm5teXFkZmxteG9zZnNlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI3ODA5MTksImV4cCI6MjA4ODM1NjkxOX0.vf3sdnJRnnXyIx998fhPSIUPX0WS7KqDbvAwesCzOcE";
+
+const THUNDERFOREST_KEY="0ffff5950d8a4019bcede9aaeeecb57f";
+
+let toutes=[];
+let filtre=[];
+let map;
+let marker;
+let radarChart;
+
+async function charger(){
+
+let res=await fetch(SUPABASE_URL+"/rest/v1/sorties?select=*",{
+
+headers:{
+apikey:SUPABASE_KEY,
+Authorization:"Bearer "+SUPABASE_KEY
+}
+
+});
+
+toutes=await res.json();
+
+filtrer();
+
+}
+
+window.onload=charger;
+
+document.querySelectorAll("input").forEach(i=>{
+i.addEventListener("input",filtrer);
+});
+
+function filtrer(){
+
+let date=document.getElementById("date").value;
+let desc=document.getElementById("description").value.toLowerCase();
+let anim=document.getElementById("animateur").value.toLowerCase();
+let ibp=document.getElementById("ibp").value;
+let km=document.getElementById("km").value;
+let den=document.getElementById("denivele").value;
+
+filtre=toutes.filter(r=>{
+
+return (!date || r.date===date)
+&& (!desc || r.description?.toLowerCase().includes(desc))
+&& (!anim || r.animateur?.toLowerCase().includes(anim))
+&& (!ibp || r.ibp<=ibp)
+&& (!km || r.km<=km)
+&& (!den || r.denivele<=den);
+
+});
+
+afficher();
+
+}
+
+function afficher(){
+
+let tbody=document.getElementById("tableBody");
+
+tbody.innerHTML="";
+
+let totalKm=0;
+let totalDen=0;
+let totalIBP=0;
+
+filtre.forEach(r=>{
+
+totalKm+=Number(r.km)||0;
+totalDen+=Number(r.denivele)||0;
+totalIBP+=Number(r.ibp)||0;
+
+let tr=document.createElement("tr");
+
+tr.innerHTML=`
+
+<td>${r.date?new Date(r.date).toLocaleDateString("fr-FR"):""}</td>
+<td>${r.description??""}</td>
+<td>${r.ibp??""}</td>
+<td>${r.km??""}</td>
+<td>${r.denivele??""}</td>
+<td>${r.animateur??""}</td>
+
+`;
+
+tr.onclick=()=>ouvrirCartePopup(r.description);
+
+tbody.appendChild(tr);
+
+});
+
+let n=filtre.length;
+
+let moyKm=n?(totalKm/n).toFixed(1):0;
+let moyDen=n?(totalDen/n).toFixed(0):0;
+let moyIBP=n?(totalIBP/n).toFixed(0):0;
+
+document.getElementById("stats").innerHTML=
+
+"📊 "+n+" randonnée(s) | Km moyen : "+moyKm+
+" | Dénivelé moyen : "+moyDen+
+" | IBP moyen : "+moyIBP;
+
+}
+
+function initMap(){
+
+map=L.map('map').setView([42.6,2.9],9);
+
+L.tileLayer(
+'https://tile.thunderforest.com/outdoors/{z}/{x}/{y}.png?apikey='+THUNDERFOREST_KEY,
+{
+maxZoom:22
+}).addTo(map);
+
+}
+
+async function afficherCarte(description){
+
+let lieu=description.split(".")[0].trim();
+
+let url="https://nominatim.openstreetmap.org/search?format=json&q="+encodeURIComponent(lieu);
+
+let res=await fetch(url);
+let data=await res.json();
+
+if(data.length){
+
+let lat=data[0].lat;
+let lon=data[0].lon;
+
+map.setView([lat,lon],13);
+
+if(marker) map.removeLayer(marker);
+
+marker=L.marker([lat,lon]).addTo(map)
+.bindPopup(lieu)
+.openPopup();
+
+}
+
+}
+
+function ouvrirCartePopup(lieu){
+
+document.getElementById("popupCarte").style.display="block";
+
+setTimeout(()=>{
+
+if(!map) initMap();
+
+afficherCarte(lieu);
+
+},200);
+
+}
+
+document.getElementById("fermerCarte").onclick=function(){
+
+document.getElementById("popupCarte").style.display="none";
+
+}
+
+</script>
+
+</body>
+</html>
